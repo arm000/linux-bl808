@@ -9,7 +9,7 @@
 
 / {
 	model = "Pine64 Ox64";
-	compatible = "sipeed,m1s", "bflb,bl808";
+	compatible = "sipeed,m1s", "bouffalolab,bl808";
 
 	aliases {
 		serial0 = &uart0;
@@ -34,6 +34,12 @@
 		linux,mtd-name = "xip-flash.0";
 		erase-size = <0x10000>;
 		bank-width = <4>;
+
+		/*rootfs@0 {
+			label = "rootfs";
+			reg = <0x00000 0x400000>;
+			read-only;
+		};*/
 	};
 };
 
@@ -50,9 +56,5 @@
 };
 
 &ipclic {
-	status = "okay";
-};
-
-&ehci0 {
 	status = "okay";
 };

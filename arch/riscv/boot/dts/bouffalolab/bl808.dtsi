@@ -7,7 +7,7 @@
 #include <dt-bindings/mailbox/bflb-ipc.h>
 
 / {
-	compatible = "bouffalolab,bl808";
+	compatible = "bflb,bl808";
 	#address-cells = <1>;
 	#size-cells = <1>;
 
@@ -61,7 +61,7 @@
 		#size-cells = <1>;
 
 		uart0: serial@30002000 {
-			compatible = "bouffalolab,uart";
+			compatible = "bflb,bl808-uart";
 			reg = <0x30002000 0x1000>;
 			interrupts = <20 IRQ_TYPE_LEVEL_HIGH>;
 			clocks = <&xtal>;
@@ -69,7 +69,7 @@
 		};
 		
 		uart1: serial@0x2000AA00 {
-			compatible = "bouffalolab,uart";
+			compatible = "bflb,bl808-uart";
 			reg = <0x2000AA00 0x0100>;
 			interrupts-extended = <&ipclic BFLB_IPC_SOURCE_M0
 								BFLB_IPC_DEVICE_UART2
@@ -80,7 +80,7 @@
 		};
 		
 		sdhci0: sdhci@20060000 {
-			compatible = "bouffalolab,bflb-sdhci";
+			compatible = "bflb,bl808-sdhci";
 			reg = <0x20060000 0x100>;
 			interrupts-extended = <&ipclic BFLB_IPC_SOURCE_M0
 						       BFLB_IPC_DEVICE_SDHCI
@@ -101,7 +101,7 @@
 		};
 
 		ipclic: mailbox@30005000 {
-			compatible = "bouffalolab,bflb-ipc";
+			compatible = "bflb,bl808-ipc";
 			reg = <0x30005000 0x20>,
 			      <0x30005020 0x20>,
 			      <0x2000a800 0x20>,

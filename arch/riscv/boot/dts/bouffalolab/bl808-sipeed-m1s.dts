@@ -9,7 +9,7 @@
 
 / {
 	model = "Sipeed M1S";
-	compatible = "sipeed,m1s", "bouffalolab,bl808";
+	compatible = "sipeed,m1s", "bflb,bl808";
 
 	aliases {
 		serial0 = &uart0;

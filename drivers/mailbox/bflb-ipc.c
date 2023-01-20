@@ -350,7 +350,7 @@ static int bflb_ipc_remove(struct platform_device *pdev)
 }
 
 static const struct of_device_id bflb_ipc_of_match[] = {
-	{ .compatible = "bouffalolab,bflb-ipc"},
+	{ .compatible = "bflb,bl808-ipc"},
 	{}
 };
 MODULE_DEVICE_TABLE(of, bflb_ipc_of_match);

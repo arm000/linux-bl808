@@ -95,7 +95,7 @@ err_sdhci_add:
 }
 
 static const struct of_device_id sdhci_bflb_of_match_table[] = {
-	{ .compatible = "bouffalolab,bflb-sdhci", },
+	{ .compatible = "bflb,bl808-sdhci", },
 	{}
 };
 MODULE_DEVICE_TABLE(of, sdhci_bflb_of_match_table);

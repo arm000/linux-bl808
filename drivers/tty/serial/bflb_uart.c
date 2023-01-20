@@ -538,7 +538,7 @@ static int __init bflb_uart_earlycon_setup(struct earlycon_device *dev,
 
 	return 0;
 }
-OF_EARLYCON_DECLARE(bflb_uart, "bouffalolab,uart", bflb_uart_earlycon_setup);
+OF_EARLYCON_DECLARE(bflb_uart, "bflb,bl808-uart", bflb_uart_earlycon_setup);
 
 #else
 
@@ -615,7 +615,7 @@ static int bflb_uart_remove(struct platform_device *pdev)
 
 static const struct of_device_id bflb_uart_match[] = {
 	{
-		.compatible = "bouffalolab,uart",
+		.compatible = "bflb,bl808-uart",
 	},
 	{},
 };
