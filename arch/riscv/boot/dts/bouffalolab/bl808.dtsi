@@ -5,6 +5,7 @@
 
 #include <dt-bindings/interrupt-controller/irq.h>
 #include <dt-bindings/mailbox/bflb-ipc.h>
+#include <dt-bindings/pinctrl/bflb.h>
 
 / {
 	compatible = "bouffalolab,bl808";
@@ -59,6 +60,44 @@
 		dma-noncoherent;
 		#address-cells = <1>;
 		#size-cells = <1>;
+
+		pinctrl: pinctrl@0x200008C4 {
+			compatible = "bflb,pinctrl";
+			reg = <0x200008C4 0x1000>; //Last register is for gpio_cfg141 at 0x20000af8
+			//clocks = <&gpio_clk>;
+
+			gpio-controller;
+			#gpio-cells = <2>;
+			gpio-ranges = <&pinctrl 0 0 45>;
+			bflb,npins = <45>;
+
+			status = "disabled";
+
+			interrupt-controller;
+			#interrupt-cells = <2>;
+			//interrupt-parent = <&aic>;
+			interrupts-extended = <&ipclic BFLB_IPC_SOURCE_M0
+								BFLB_IPC_DEVICE_GPIO
+								IRQ_TYPE_EDGE_RISING>;
+			mboxes = <&ipclic BFLB_IPC_SOURCE_M0 BFLB_IPC_DEVICE_GPIO>;
+			/*interrupts = <AIC_IRQ 16 IRQ_TYPE_LEVEL_HIGH>,
+						<AIC_IRQ 17 IRQ_TYPE_LEVEL_HIGH>,
+						<AIC_IRQ 18 IRQ_TYPE_LEVEL_HIGH>,
+						<AIC_IRQ 19 IRQ_TYPE_LEVEL_HIGH>,
+						<AIC_IRQ 20 IRQ_TYPE_LEVEL_HIGH>,
+						<AIC_IRQ 21 IRQ_TYPE_LEVEL_HIGH>,
+						<AIC_IRQ 22 IRQ_TYPE_LEVEL_HIGH>;*/
+
+			/*pcie_pins: pcie-pins {
+				pinmux = <APPLE_PINMUX(150, 1)>,
+						<APPLE_PINMUX(151, 1)>,
+						<APPLE_PINMUX(32, 1)>;
+			};*/
+
+			gpio29_pin: gpio29-pin {
+				pinmux = <BFLB_PINMUX(29, BFLB_FUNC_SWGPIO)>;
+			};
+		};
 
 		uart0: serial@30002000 {
 			compatible = "bouffalolab,uart";
