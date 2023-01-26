@@ -101,21 +101,10 @@ struct ehci_regs {
 	/* ASYNCLISTADDR: offset 0x18 */
 	u32		async_next;	/* address of next async queue head */
 
-	u32		reserved1[2];
-
-	/* TXFILLTUNING: offset 0x24 */
-	u32		txfill_tuning;	/* TX FIFO Tuning register */
-#define TXFIFO_DEFAULT	(8<<16)		/* FIFO burst threshold 8 */
-
-	u32		reserved2[6];
-
-	/* CONFIGFLAG: offset 0x40 */
-	u32		configured_flag;
-#define FLAG_CF		(1<<0)		/* true: we'll support "high speed" */
-
+	u32		reserved1[1];
 	union {
-		/* PORTSC: offset 0x44 */
-		u32	port_status[HCS_N_PORTS_MAX];	/* up to N_PORTS */
+		/* PORTSC: offset 0x20 */
+		u32	port_status[1];	/* up to N_PORTS */
 /* EHCI 1.1 addendum */
 #define PORTSC_SUSPEND_STS_ACK 0
 #define PORTSC_SUSPEND_STS_NYET 1
@@ -162,6 +151,17 @@ struct ehci_regs {
 #define USBMODE_CM_HC	(3<<0)		/* host controller mode */
 #define USBMODE_CM_IDLE	(0<<0)		/* idle state */
 	};
+
+	/* TXFILLTUNING: offset 0x24 */
+	u32		txfill_tuning;	/* TX FIFO Tuning register */
+#define TXFIFO_DEFAULT	(8<<16)		/* FIFO burst threshold 8 */
+
+	u32		reserved2[6];
+
+	/* CONFIGFLAG: offset 0x40 */
+	u32		configured_flag;
+#define FLAG_CF		(1<<0)		/* true: we'll support "high speed" */
+
 
 /* Moorestown has some non-standard registers, partially due to the fact that
  * its EHCI controller has both TT and LPM support. HOSTPCx are extensions to

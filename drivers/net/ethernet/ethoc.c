@@ -70,6 +70,7 @@ MODULE_PARM_DESC(buffer_size, "DMA buffer allocation size");
 #define	MODER_HUGE	(1 << 14) /* huge packets enable */
 #define	MODER_PAD	(1 << 15) /* padding enabled */
 #define	MODER_RSM	(1 << 16) /* receive small packets */
+#define	MODER_RMII	(1 << 17) /* RMII mode enable */
 
 /* interrupt source and mask registers */
 #define	INT_MASK_TXF	(1 << 0) /* transmit frame */
@@ -138,6 +139,7 @@ MODULE_PARM_DESC(buffer_size, "DMA buffer allocation size");
 #define	TX_BD_RETRY_MASK	(0x00f0)
 #define	TX_BD_RETRY(x)		(((x) & 0x00f0) >>  4)
 #define	TX_BD_UR		(1 <<  8) /* transmitter underrun */
+#define TX_BD_EOF               (1 << 10) /* End of Frame */
 #define	TX_BD_CRC		(1 << 11) /* TX CRC enable */
 #define	TX_BD_PAD		(1 << 12) /* pad enable for short packets */
 #define	TX_BD_WRAP		(1 << 13)
@@ -269,14 +271,14 @@ static inline void ethoc_write_bd(struct ethoc *dev, int index,
 static inline void ethoc_enable_irq(struct ethoc *dev, u32 mask)
 {
 	u32 imask = ethoc_read(dev, INT_MASK);
-	imask |= mask;
+	imask &= ~mask;
 	ethoc_write(dev, INT_MASK, imask);
 }
 
 static inline void ethoc_disable_irq(struct ethoc *dev, u32 mask)
 {
 	u32 imask = ethoc_read(dev, INT_MASK);
-	imask &= ~mask;
+	imask |= mask;
 	ethoc_write(dev, INT_MASK, imask);
 }
 
@@ -355,7 +357,7 @@ static int ethoc_reset(struct ethoc *dev)
 
 	/* enable FCS generation and automatic padding */
 	mode = ethoc_read(dev, MODER);
-	mode |= MODER_CRC | MODER_PAD;
+	mode |= MODER_CRC | MODER_PAD | MODER_RMII;
 	ethoc_write(dev, MODER, mode);
 
 	/* set full-duplex mode */
@@ -564,7 +566,7 @@ static irqreturn_t ethoc_interrupt(int irq, void *dev_id)
 	 */
 	mask = ethoc_read(priv, INT_MASK);
 	pending = ethoc_read(priv, INT_SOURCE);
-	pending &= mask;
+	pending &= ~mask;
 
 	if (unlikely(pending == 0))
 		return IRQ_NONE;
@@ -907,8 +909,8 @@ static netdev_tx_t ethoc_start_xmit(struct sk_buff *skb, struct net_device *dev)
 	dest = priv->vma[entry];
 	memcpy_toio(dest, skb->data, skb->len);
 
-	bd.stat &= ~(TX_BD_STATS | TX_BD_LEN_MASK);
-	bd.stat |= TX_BD_LEN(skb->len);
+	bd.stat &= ~(TX_BD_STATS | TX_BD_EOF | TX_BD_LEN_MASK);
+	bd.stat |= TX_BD_LEN(skb->len)  | TX_BD_EOF;
 	ethoc_write_bd(priv, entry, &bd);
 
 	bd.stat |= TX_BD_READY;
@@ -1181,7 +1183,7 @@ static int ethoc_probe(struct platform_device *pdev)
 		}
 	}
 	if (eth_clkfreq) {
-		u32 clkdiv = MIIMODER_CLKDIV(eth_clkfreq / 2500000 + 1);
+		u32 clkdiv = MIIMODER_CLKDIV(eth_clkfreq / 1000000 + 1);
 
 		if (!clkdiv)
 			clkdiv = 2;

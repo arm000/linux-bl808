@@ -55,11 +55,7 @@ static const struct sdhci_pltfm_data sdhci_bflb_pdata = {
 	.quirks	= SDHCI_QUIRK_NO_SIMULT_VDD_AND_POWER |
 		  SDHCI_QUIRK_NO_BUSY_IRQ |
 		  SDHCI_QUIRK_BROKEN_TIMEOUT_VAL |
-		  SDHCI_QUIRK_BROKEN_DMA |
-		  SDHCI_QUIRK_BROKEN_ADMA |
-		  SDHCI_QUIRK_BROKEN_CARD_DETECTION |
-		  SDHCI_QUIRK_INVERTED_WRITE_PROTECT |
-		  SDHCI_QUIRK_NO_HISPD_BIT,
+		  SDHCI_QUIRK_INVERTED_WRITE_PROTECT,
 };
 
 static int sdhci_bflb_probe(struct platform_device *pdev)
@@ -95,7 +91,7 @@ err_sdhci_add:
 }
 
 static const struct of_device_id sdhci_bflb_of_match_table[] = {
-	{ .compatible = "bouffalolab,bflb-sdhci", },
+	{ .compatible = "bflb,bl808-sdhci", },
 	{}
 };
 MODULE_DEVICE_TABLE(of, sdhci_bflb_of_match_table);

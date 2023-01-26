@@ -9,7 +9,7 @@
 
 / {
 	model = "Pine64 Ox64";
-	compatible = "sipeed,m1s", "bouffalolab,bl808";
+	compatible = "sipeed,m1s", "bflb,bl808";
 
 	aliases {
 		serial0 = &uart0;
@@ -19,7 +19,7 @@
 	chosen {
 		stdout-path = "serial0:2000000n8";
 		//bootargs = "console=ttyS0,2000000 loglevel=8 earlycon=sbi root=/dev/mtdblock0 ro rootfstype=squashfs";
-		bootargs = "console=ttyS0,2000000 loglevel=8 earlycon=sbi root=/dev/mmcblk0p1 rootfstype=ext4 rootwait";
+		bootargs = "console=ttyS0,2000000 loglevel=8 earlycon=sbi root=/dev/mmcblk0p2 rootfstype=ext4 rootwait";
 		linux,initrd-start = <0x0 0x52000000>;
 		linux,initrd-end = <0x0 0x52941784>;
 	};
@@ -35,12 +35,6 @@
 		linux,mtd-name = "xip-flash.0";
 		erase-size = <0x10000>;
 		bank-width = <4>;
-
-		/*rootfs@0 {
-			label = "rootfs";
-			reg = <0x00000 0x400000>;
-			read-only;
-		};*/
 	};
 };
 
@@ -52,14 +46,18 @@
 	status = "okay";
 };
 
-&uart1 {
-	status = "okay";
-};
-
 &sdhci0 {
 	status = "okay";
 };
 
 &ipclic {
+	status = "okay";
+};
+
+&ehci0 {
+	status = "okay";
+};
+
+&enet0 {
 	status = "okay";
 };
