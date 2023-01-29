@@ -75,8 +75,8 @@
 
 			gpio-controller;
 			#gpio-cells = <2>;
-			gpio-ranges = <&pinctrl 0 0 45>;
-			bflb,npins = <45>;
+			gpio-ranges = <&pinctrl 0 0 46>;
+			bflb,npins = <46>;
 
 			status = "disabled";
 
@@ -101,8 +101,18 @@
 						<APPLE_PINMUX(32, 1)>;
 			};*/
 
-			gpio29_pin: gpio29-pin {
+			/*gpio29_pin: gpio29-pin {
 				pinmux = <BFLB_PINMUX(29, BFLB_FUNC_SWGPIO)>;
+			};*/
+
+			sdh_pins: sdh-pins {
+				pins = "GPIO0", "GPIO1", "GPIO2", "GPIO3", "GPIO4", "GPIO5";
+				function = "sdh";
+			};
+
+			swgpio_pins: swgpio-pins {
+				pins = "GPIO29";
+				function = "gpio";
 			};
 		};
 
