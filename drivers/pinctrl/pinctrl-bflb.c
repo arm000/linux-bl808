@@ -11,8 +11,6 @@
  * Copyright (C) 2014 Google, Inc.
  */
 
-#include <dt-bindings/pinctrl/bflb.h>
-
 #include <linux/bitfield.h>
 #include <linux/bits.h>
 #include <linux/gpio/driver.h>
@@ -24,6 +22,7 @@
 #include <linux/platform_device.h>
 #include <linux/regmap.h>
 
+#include <linux/pinctrl/consumer.h>
 #include <linux/pinctrl/pinconf-generic.h>
 #include <linux/pinctrl/pinctrl.h>
 #include <linux/pinctrl/pinmux.h>
@@ -78,6 +77,35 @@ struct bflb_gpio_pinctrl
 #define BFLB_IRQ_MODE_ASYNC_LEVEL_LOW 10
 #define BFLB_IRQ_MODE_ASYNC_LEVEL_HIGH 11
 
+static const char* pinmux_functions[] = {
+	//AH: As taken from smaeul's pinctrl-bflb.c for U-Boot
+	[0]	= "sdh",
+	[1]	= "spi0",
+	[2]	= "flash",
+	[3]	= "i2s",
+	[4]	= "pdm",
+	[5]	= "i2c0",
+	[6]	= "i2c1",
+	[7]	= "uart",
+	[8]	= "emac",
+	[9]	= "cam",
+	[10]	= "analog",
+	[11]	= "gpio",
+	[16]	= "pwm0",
+	[17]	= "pwm1",
+	[18]	= "spi1",	// mm_spi
+	[19]	= "i2c2",	// mm_i2c0
+	[20]	= "i2c3",	// mm_i2c1
+	[21]	= "mm_uart",
+	[22]	= "dbi_b",
+	[23]	= "dbi_c",
+	[24]	= "dpi",
+	[25]	= "jtag_lp",
+	[26]	= "jtag_m0",
+	[27]	= "jtag_d0",
+	[31]	= "clock",
+};
+
 struct regmap_config regmap_config = {
 	.reg_bits = 32,
 	.val_bits = 32,
@@ -112,77 +140,12 @@ static u32 bflb_gpio_get_reg(struct bflb_gpio_pinctrl *pctl, unsigned int pin)
 
 /* Pin controller functions */
 
-//AH: Map DT to internal
-/*static int bflb_gpio_dt_node_to_map(struct pinctrl_dev *pctldev, struct device_node *node, struct pinctrl_map **map, unsigned *num_maps)
-{
-	unsigned reserved_maps;
-	struct bflb_gpio_pinctrl *pctl;
-	u32 pinfunc, pin, func;
-	int num_pins, i, ret;
-	const char *group_name;
-	const char *function_name;
-
-	*map = NULL;
-	*num_maps = 0;
-	reserved_maps = 0;
-
-	pr_debug("Starting BFLB GPIO node parse...");
-
-	pctl = pinctrl_dev_get_drvdata(pctldev);
-
-	ret = of_property_count_u32_elems(node, "pinmux");
-
-	pr_debug("Node has %d pinmux(es)", ret);
-
-	if (ret <= 0)
-	{
-		dev_err(pctl->dev, "missing or empty pinmux property in node %pOFn.\n", node);
-
-		return ret ? ret : -EINVAL;
-	}
-
-	num_pins = ret;
-
-	ret = pinctrl_utils_reserve_map(pctldev, map, &reserved_maps, num_maps, num_pins);
-
-	if (ret) return ret;
-
-	for (i = 0; i < num_pins; i++)
-	{
-		ret = of_property_read_u32_index(node, "pinmux", i, &pinfunc);
-
-		if (ret) goto free_map;
-
-		pin = BFLB_PIN(pinfunc);
-		func = BFLB_FUNC(pinfunc);
-
-		if (func >= pinmux_generic_get_function_count(pctldev))
-		{
-			ret = -EINVAL;
-			goto free_map;
-		}
-
-		group_name = pinctrl_generic_get_group_name(pctldev, pin);
-		function_name = pinmux_generic_get_function_name(pctl->pctldev, func);
-		ret = pinctrl_utils_add_map_mux(pctl->pctldev, map, &reserved_maps, num_maps, group_name, function_name);
-
-		if (ret) goto free_map;
-	}
-
-free_map:
-	if (ret < 0) pinctrl_utils_free_map(pctldev, *map, *num_maps);
-
-	return ret;
-}*/
-
 static const struct pinctrl_ops bflb_gpio_pinctrl_ops = {
 	.get_groups_count = pinctrl_generic_get_group_count,
 	.get_group_name   = pinctrl_generic_get_group_name,
 	.get_group_pins   = pinctrl_generic_get_group_pins,
-	//.dt_node_to_map   = bflb_gpio_dt_node_to_map,
 	.dt_node_to_map   = pinconf_generic_dt_node_to_map_group,
 	.dt_free_map      = pinconf_generic_dt_free_map,
-	//.dt_free_map      = pinctrl_utils_free_map,
 };
 
 /* Pin multiplexer functions */
@@ -467,6 +430,35 @@ static const struct irq_chip bflb_gpio_irqchip = {
 	GPIOCHIP_IRQ_RESOURCE_HELPERS,
 };
 
+static int bflb_gpio_request(struct gpio_chip *chip, unsigned int offset)
+{
+	int ret;
+	struct bflb_gpio_pinctrl *pctl = gpiochip_get_data(chip);
+
+	ret = pinctrl_gpio_request(chip->base + offset);
+
+	if (ret) return ret;
+
+	bflb_gpio_set_reg
+	(
+		pctl, //Driver
+		offset, //Pin
+		REG_GPIOx_FUNC_SEL, //Mask - Setting Function
+		FIELD_PREP(REG_GPIOx_FUNC_SEL, 11/*SWGPIO*/) //Value - Setting to specified func
+	);
+
+	dev_dbg(pctl->dev, "Pin %u set to function GPIO as part of request", offset);
+
+	return 0;
+}
+
+static void bflb_gpio_free(struct gpio_chip *chip, unsigned int offset)
+{
+	pinctrl_gpio_free(chip->base + offset);
+
+	bflb_gpio_direction_input(chip, offset);
+}
+
 /* Probe & register */
 
 static int bflb_gpio_register(struct bflb_gpio_pinctrl *pctl)
@@ -476,8 +468,8 @@ static int bflb_gpio_register(struct bflb_gpio_pinctrl *pctl)
 	int ret;
 
 	pctl->gpio_chip.label = dev_name(pctl->dev);
-	pctl->gpio_chip.request = gpiochip_generic_request;
-	pctl->gpio_chip.free = gpiochip_generic_free;
+	pctl->gpio_chip.request = bflb_gpio_request;
+	pctl->gpio_chip.free = bflb_gpio_free;
 	pctl->gpio_chip.get_direction = bflb_gpio_get_direction;
 	pctl->gpio_chip.direction_input = bflb_gpio_direction_input;
 	pctl->gpio_chip.direction_output = bflb_gpio_direction_output;
@@ -540,35 +532,6 @@ static int bflb_gpio_pinctrl_probe(struct platform_device *pdev)
 	unsigned int *pin_nums;
 	unsigned int i, nirqs = 0;
 	int res;
-
-	static const char* pinmux_functions[] = {
-		//AH: As taken from smaeul's pinctrl-bflb.c for U-Boot
-		[0]	= "sdh",
-		[1]	= "spi0",
-		[2]	= "flash",
-		[3]	= "i2s",
-		[4]	= "pdm",
-		[5]	= "i2c0",
-		[6]	= "i2c1",
-		[7]	= "uart",
-		[8]	= "emac",
-		[9]	= "cam",
-		[10]	= "analog",
-		[11]	= "gpio",
-		[16]	= "pwm0",
-		[17]	= "pwm1",
-		[18]	= "spi1",	// mm_spi
-		[19]	= "i2c2",	// mm_i2c0
-		[20]	= "i2c3",	// mm_i2c1
-		[21]	= "mm_uart",
-		[22]	= "dbi_b",
-		[23]	= "dbi_c",
-		[24]	= "dpi",
-		[25]	= "jtag_lp",
-		[26]	= "jtag_m0",
-		[27]	= "jtag_d0",
-		[31]	= "clock",
-	};
 
 	if (of_property_read_bool(pdev->dev.of_node, "interrupt-controller"))
 	{
@@ -639,7 +602,7 @@ static int bflb_gpio_pinctrl_probe(struct platform_device *pdev)
 		}
 	}
 	
-	dev_info(&pdev->dev, "Bouffalo Lab pinctrl+GPIO(+interrupt) controller - Registered %u function(s) for %u pin(s)", ARRAY_SIZE(pinmux_functions), npins);
+	dev_info(&pdev->dev, "Bouffalo Lab pinctrl+GPIO(+interrupt) controller - Registered %lu function(s) for %u pin(s)", ARRAY_SIZE(pinmux_functions), npins);
 	return bflb_gpio_register(pctl);
 }
 
