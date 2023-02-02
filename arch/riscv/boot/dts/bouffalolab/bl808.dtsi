@@ -140,5 +140,13 @@
 			#interrupt-cells = <2>;
 			riscv,ndev = <64>;
 		};
+
+		clint: timer@e4000000 {
+				compatible = "thead,c900-clint";
+				reg = <0xe4000000 0xc000>;
+				interrupts-extended = <&cpu0_intc 3>,
+										<&cpu0_intc 7>;
+		};
+
 	};
 };
