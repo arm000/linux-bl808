@@ -13,7 +13,15 @@
 /* Peripheral device ID */
 #define BFLB_IPC_DEVICE_SDHCI		0
 #define BFLB_IPC_DEVICE_UART2		1
-#define BFLB_IPC_DEVICE_USB		2
+#define BFLB_IPC_DEVICE_USB		    2
 #define BFLB_IPC_DEVICE_EMAC		3
+#define BFLB_IPC_DEVICE_MBOX        5
+
+#define BFLB_IPC_TARGET_M0		0
+#define BFLB_IPC_TARGET_LP		1
+
+/* MailBox Signals */
+#define BFLB_IPC_MBOX_VIRTIO_KICK		1
+
 
 #endif

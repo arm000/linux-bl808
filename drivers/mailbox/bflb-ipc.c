@@ -64,6 +64,7 @@ static inline u32 bflb_ipc_get_hwirq(u16 source, u16 device)
 {
 	pr_debug("%s: source: %u, device: %u\n", __func__, source, device);
 
+	
 	return device;
 }
 
@@ -72,7 +73,7 @@ static void bflb_ipc_dump_regs(struct bflb_ipc *ipc)
 {
 	int i;
 	for (i=0; i<4; i++) {
-		dev_dbg(ipc->dev, "base %px\n", ipc->base[i]);
+		dev_dbg(ipc->dev, "base %px %d\n", ipc->base[i], i);
 		dev_dbg(ipc->dev, "ISWR:  0x%08x\n", readl(ipc->base[i] + IPC_REG_ISWR));
 		dev_dbg(ipc->dev, "IRSRR: 0x%08x\n", readl(ipc->base[i] + IPC_REG_IRSRR));
 		dev_dbg(ipc->dev, "ICR:   0x%08x\n", readl(ipc->base[i] + IPC_REG_ICR));
@@ -85,6 +86,30 @@ static void bflb_ipc_dump_regs(struct bflb_ipc *ipc)
 }
 #endif
 
+/* check the High/Low registers for the MBOX and send it off to 
+ * the mailbox. 
+ * JH: I'm guessing Source should map to the mailbox? But I've only allocated a single 
+ * mailbox so far, so its discarded.
+ */
+
+static void bflb_mbox_poll(struct bflb_ipc *ipc)
+{
+
+	u32 signal = readl(ipc->base[1] + IPC_REG_ILSHR);
+	u32 source = readl(ipc->base[1] + IPC_REG_ILSLR);
+
+	dev_dbg(ipc->dev, "signal: 0x%08x, source: 0x%08x\r\n", signal, source);
+
+	mbox_chan_received_data(&ipc->chans[0], signal);
+
+	/* clear the IPC_REG_ILSLR and IPC_REG_ILSHR */
+	writel(0, ipc->base[1] + IPC_REG_ILSLR);
+	writel(0, ipc->base[1] + IPC_REG_ILSHR);
+
+	return;
+}
+
+
 static irqreturn_t bflb_ipc_irq_fn(int irq, void *data)
 {
 	struct bflb_ipc *ipc = data;
@@ -92,12 +117,22 @@ static irqreturn_t bflb_ipc_irq_fn(int irq, void *data)
 	int pos;
 
 	stat = readl(ipc->base[1] + IPC_REG_ISR);
-	for_each_set_bit(pos, &stat, 32)
-		generic_handle_domain_irq(ipc->irq_domain, pos);
+
+
+	/*JH: I'm guessing there is a better way to pull out the mailbox IPC from others ?*/
+
+	for_each_set_bit(pos, &stat, 32) {
+		if (pos == BFLB_IPC_DEVICE_MBOX)
+			bflb_mbox_poll(ipc);
+		else 
+			generic_handle_domain_irq(ipc->irq_domain, pos);
+	}
 	writel(stat, ipc->base[1] + IPC_REG_ICR);
 
-	/* EOI the irqs */
-	writel(stat, ipc->base[2] + IPC_REG_ISWR);
+	/* EOI the irqs except our MBOX */
+	/* JH: I don't EOI the mailbox, I just look to see if the High/Low registers are cleared on M0 side */
+	if (stat != (1 << BFLB_IPC_DEVICE_MBOX))
+		writel(stat, ipc->base[2] + IPC_REG_ISWR);
 
 	return IRQ_HANDLED;
 }
@@ -157,17 +192,42 @@ static const struct irq_domain_ops bflb_ipc_irq_ops = {
 	.xlate = bflb_ipc_domain_xlate,
 };
 
+/* JH: Figure out if M0 has processed the last signal sent
+ * by checking if the High/Low registers are cleared
+ */
+static int bflb_ipc_mbox_can_send(struct mbox_chan *chan)
+{
+	struct bflb_ipc *ipc = to_bflb_ipc(chan->mbox);
+
+	u32 mbox_high = readl(ipc->base[2] + IPC_REG_ILSHR);
+	u32 mbox_low = readl(ipc->base[2] + IPC_REG_ILSLR);
+
+	dev_dbg(ipc->dev, "%s: low: 0x%08x high: 0x%08x\r\n", __func__, mbox_low, mbox_high);
+
+	return !(mbox_low | mbox_high);
+}
+
+
+
 static int bflb_ipc_mbox_send_data(struct mbox_chan *chan, void *data)
 {
 	struct bflb_ipc *ipc = to_bflb_ipc(chan->mbox);
 	struct bflb_ipc_chan_info *mchan = chan->con_priv;
-	u32 hwirq;
 
-	hwirq = bflb_ipc_get_hwirq(mchan->client_id, mchan->signal_id);
+	if (!bflb_ipc_mbox_can_send(chan))
+		return -EBUSY;
 
-	dev_dbg(ipc->dev, "%s: hwirq: %u\n", __func__, hwirq);
 
-//	writel(hwirq, ipc->base + IPC_REG_SEND_ID);
+	dev_dbg(ipc->dev, "%s: %d %d\n", __func__, mchan->client_id, mchan->signal_id);
+
+
+	// /* write our signal number to high register */
+	writel(mchan->signal_id, ipc->base[2] + IPC_REG_ILSHR);
+	// /* write our data to low register */
+	writel((u32)data, ipc->base[2] + IPC_REG_ILSLR);
+
+	/* and now kick the remote processor */
+	writel((1 << BFLB_IPC_DEVICE_MBOX), ipc->base[2] + IPC_REG_ISWR);
 
 	return 0;
 }
@@ -219,6 +279,7 @@ static struct mbox_chan *bflb_ipc_mbox_xlate(struct mbox_controller *mbox,
 	return chan;
 }
 
+
 static const struct mbox_chan_ops ipc_mbox_chan_ops = {
 	.send_data = bflb_ipc_mbox_send_data,
 	.shutdown = bflb_ipc_mbox_shutdown,
@@ -236,6 +297,7 @@ static int bflb_ipc_setup_mbox(struct bflb_ipc *ipc,
 	/*
 	 * Find out the number of clients interested in this mailbox
 	 * and create channels accordingly.
+	 * JH: How do we allocate them so we can lookup by name?
 	 */
 	ipc->num_chans = 0;
 	for_each_node_with_property(client_dn, "mboxes") {
@@ -253,7 +315,7 @@ static int bflb_ipc_setup_mbox(struct bflb_ipc *ipc,
 			}
 		}
 	}
-
+	dev_dbg(dev, "%s: num_chans: %d", __func__, ipc->num_chans);
 	/* If no clients are found, skip registering as a mbox controller */
 	if (!ipc->num_chans)
 		return 0;
@@ -271,6 +333,14 @@ static int bflb_ipc_setup_mbox(struct bflb_ipc *ipc,
 	mbox->of_xlate = bflb_ipc_mbox_xlate;
 	mbox->txdone_irq = false;
 	mbox->txdone_poll = false;
+
+
+	/* clear the IPC_REG_ILSLR and IPC_REG_ILSHR */
+	writel(0, ipc->base[2] + IPC_REG_ILSLR);
+	writel(0, ipc->base[2] + IPC_REG_ILSHR);
+
+	/* unmask our interupt */
+	writel(BIT(BFLB_IPC_DEVICE_MBOX), ipc->base[1] + IPC_REG_IUSR);
 
 	return devm_mbox_controller_register(dev, mbox);
 }

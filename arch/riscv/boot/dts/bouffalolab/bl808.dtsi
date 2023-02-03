@@ -59,6 +59,31 @@
 		#clock-cells = <0>;
 	};
 
+	reserved-memory {
+			#address-cells = <1>;
+			#size-cells = <1>;
+			ranges;
+			/* putting this at the top of uncached WRAM for the moment */
+			vdev0vring0: vdev0vring0@22054000 {
+					compatible = "shared-dma-pool";
+					reg = <0x22050000 0x4000>;
+					no-map;
+			};
+
+			vdev0vring1: vdev0vring1@22055000 {
+					compatible = "shared-dma-pool";
+					reg = <0x22054000 0x4000>;
+					no-map;
+			};
+
+			vdev0buffer: vdev0buffer@22056000 {
+					compatible = "shared-dma-pool";
+					reg = <0x22042000 0x8000>;
+					no-map;
+			};
+	};
+
+
 	soc {
 		compatible = "simple-bus";
 		ranges;
@@ -139,6 +164,23 @@
 			#address-cells = <0>;
 			#interrupt-cells = <2>;
 			riscv,ndev = <64>;
+		};
+		
+		clint: timer@e4000000 {
+				compatible = "thead,c900-clint";
+				reg = <0xe4000000 0xc000>;
+				interrupts-extended = 	<&cpu0_intc 3>,
+										<&cpu0_intc 7>;
+		};
+
+
+		rproc: rproc@22054000 {
+			compatible = "bflb,bl808-rproc";
+			reg = <0x22054000 0x4000>;
+			memory-region = <&vdev0vring0>, <&vdev0vring1>, <&vdev0buffer>;
+			mboxes = <&ipclic BFLB_IPC_TARGET_M0 BFLB_IPC_MBOX_VIRTIO_KICK>;
+
+			status = "disabled";
 		};
 	};
 };
