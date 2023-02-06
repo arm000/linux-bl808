@@ -181,6 +181,17 @@ config BD957XMUF_WATCHDOG
 	  watchdog. Alternatively say M to compile the driver as a module,
 	  which will be called bd9576_wdt.
 
+config BFLB_WATCHDOG
+	tristate "BFLB BL808 Watchdog"
+	depends on SOC_BOUFFALOLAB
+	select WATCHDOG_CORE
+	help
+	  Support for the watchdog on BL808.
+
+	  Say Y here to include support for the BL808 watchdog.
+	  Alternately say M to compile the driver as a module,
+	  which will be called bflb_wdt.
+
 config DA9052_WATCHDOG
 	tristate "Dialog DA9052 Watchdog"
 	depends on PMIC_DA9052 || COMPILE_TEST

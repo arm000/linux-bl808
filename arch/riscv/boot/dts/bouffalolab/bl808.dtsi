@@ -140,5 +140,12 @@
 			#interrupt-cells = <2>;
 			riscv,ndev = <64>;
 		};
+
+                wdt: wdt@2000a500 {
+                        compatible = "bflb,bl808-wdt";
+                        reg = <0x2000a500 0x100>;
+                        status = "disabled";
+                };
+		
 	};
 };
