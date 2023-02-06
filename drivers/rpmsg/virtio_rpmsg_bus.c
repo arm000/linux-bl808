@@ -884,28 +884,38 @@ static int rpmsg_probe(struct virtio_device *vdev)
 
 	vrp->vdev = vdev;
 
+	dev_dbg(&vdev->dev, "probing %s", dev_name(&vdev->dev));
+
 	idr_init(&vrp->endpoints);
 	mutex_init(&vrp->endpoints_lock);
 	mutex_init(&vrp->tx_lock);
 	init_waitqueue_head(&vrp->sendq);
 
+	dev_dbg(&vdev->dev, "virtio_find_vqs virtio_find_vqs");
 	/* We expect two virtqueues, rx and tx (and in this order) */
 	err = virtio_find_vqs(vdev, 2, vqs, vq_cbs, names, NULL);
-	if (err)
+	if (err) {
+		dev_err(&vdev->dev, "error %d finding virtqueues", err);
 		goto free_vrp;
-
+	}
 	vrp->rvq = vqs[0];
 	vrp->svq = vqs[1];
+
+	dev_dbg(&vdev->dev, "virtio_find_vqs virtio_find_vqs");
 
 	/* we expect symmetric tx/rx vrings */
 	WARN_ON(virtqueue_get_vring_size(vrp->rvq) !=
 		virtqueue_get_vring_size(vrp->svq));
+
+	dev_dbg(&vdev->dev, "virtqueue_get_vring_size");
 
 	/* we need less buffers if vrings are small */
 	if (virtqueue_get_vring_size(vrp->rvq) < MAX_RPMSG_NUM_BUFS / 2)
 		vrp->num_bufs = virtqueue_get_vring_size(vrp->rvq) * 2;
 	else
 		vrp->num_bufs = MAX_RPMSG_NUM_BUFS;
+
+	dev_dbg(&vdev->dev, "virtqueue_get_vring_size %d", vrp->num_bufs);
 
 	vrp->buf_size = MAX_RPMSG_BUF_SIZE;
 
@@ -916,11 +926,12 @@ static int rpmsg_probe(struct virtio_device *vdev)
 				     total_buf_space, &vrp->bufs_dma,
 				     GFP_KERNEL);
 	if (!bufs_va) {
+		dev_dbg(&vdev->dev, "dma_alloc_coherent failed");
 		err = -ENOMEM;
 		goto vqs_del;
 	}
 
-	dev_dbg(&vdev->dev, "buffers: va %pK, dma %pad\n",
+	dev_dbg(&vdev->dev, "buffers: va %pxK, dma %pad\n",
 		bufs_va, &vrp->bufs_dma);
 
 	/* half of the buffers is dedicated for RX */
@@ -933,13 +944,15 @@ static int rpmsg_probe(struct virtio_device *vdev)
 	for (i = 0; i < vrp->num_bufs / 2; i++) {
 		struct scatterlist sg;
 		void *cpu_addr = vrp->rbufs + i * vrp->buf_size;
-
+pr_debug("virtqueue_add_inbuf virtqueue_add_inbuf cpu %llxK\r\n", cpu_addr);
 		rpmsg_sg_init(&sg, cpu_addr, vrp->buf_size);
 
 		err = virtqueue_add_inbuf(vrp->rvq, &sg, 1, cpu_addr,
 					  GFP_KERNEL);
 		WARN_ON(err); /* sanity check; this can't really happen */
 	}
+
+	dev_dbg(&vdev->dev, "virtqueue_add_inbuf virtqueue_add_inbuf");
 
 	/* suppress "tx-complete" interrupts */
 	virtqueue_disable_cb(vrp->svq);
@@ -951,6 +964,8 @@ static int rpmsg_probe(struct virtio_device *vdev)
 		err = PTR_ERR(rpdev_ctrl);
 		goto free_coherent;
 	}
+
+	dev_dbg(&vdev->dev, "rpmsg_virtio_add_ctrl_dev rpmsg_virtio_add_ctrl_dev");
 
 	/* if supported by the remote processor, enable the name service */
 	if (virtio_has_feature(vdev, VIRTIO_RPMSG_F_NS)) {
@@ -976,6 +991,8 @@ static int rpmsg_probe(struct virtio_device *vdev)
 			/* vch will be free in virtio_rpmsg_release_device() */
 			goto free_ctrldev;
 	}
+
+	dev_dbg(&vdev->dev, "rpmsg_ns_register_device rpmsg_ns_register_device");
 
 	/*
 	 * Prepare to kick but don't notify yet - we can't do this before
@@ -1007,6 +1024,7 @@ vqs_del:
 	vdev->config->del_vqs(vrp->vdev);
 free_vrp:
 	kfree(vrp);
+	dev_dbg(&vdev->dev, "rpmsg virtio probe failed: %d", err);
 	return err;
 }
 

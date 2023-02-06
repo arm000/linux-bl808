@@ -31,6 +31,8 @@ static int copy_dma_range_map(struct device *to, struct device *from)
 	const struct bus_dma_region *map = from->dma_range_map, *new_map, *r;
 	int num_ranges = 0;
 
+	pr_debug("copy_dma_range_map: copying dma_range_map\r\n");
+
 	if (!map)
 		return 0;
 
@@ -93,8 +95,10 @@ irqreturn_t rproc_vq_interrupt(struct rproc *rproc, int notifyid)
 	dev_dbg(&rproc->dev, "vq index %d is interrupted\n", notifyid);
 
 	rvring = idr_find(&rproc->notifyids, notifyid);
-	if (!rvring || !rvring->vq)
+	if (!rvring || !rvring->vq) {
+		dev_dbg(&rproc->dev, "no vq found for notifyid %d\n", notifyid);
 		return IRQ_NONE;
+	}
 
 	return vring_interrupt(0, rvring->vq);
 }
@@ -121,12 +125,17 @@ static struct virtqueue *rp_find_vq(struct virtio_device *vdev,
 
 	if (!name)
 		return NULL;
-
+	dev_dbg(dev, "looking for vring%d", id);
 	/* Search allocated memory region by name */
 	mem = rproc_find_carveout_by_name(rproc, "vdev%dvring%d", rvdev->index,
 					  id);
-	if (!mem || !mem->va)
+	if (!mem || !mem->va) {
+		dev_dbg(dev, "no carveout for vdev%dvring%d", rvdev->index, id);
+		if (mem) dev_dbg(dev, "mem->va is NULL");
 		return ERR_PTR(-ENOMEM);
+	}
+
+	dev_dbg(dev, "find carveout %s", mem->name);
 
 	rvring = &rvdev->vring[id];
 	addr = mem->va;
@@ -136,7 +145,7 @@ static struct virtqueue *rp_find_vq(struct virtio_device *vdev,
 	size = vring_size(num, rvring->align);
 	memset(addr, 0, size);
 
-	dev_dbg(dev, "vring%d: va %pK qsz %d notifyid %d\n",
+	dev_dbg(dev, "vring%d: va %pxK qsz %d notifyid %d\n",
 		id, addr, num, rvring->notifyid);
 
 	/*
@@ -159,6 +168,8 @@ static struct virtqueue *rp_find_vq(struct virtio_device *vdev,
 	/* Update vring in resource table */
 	rsc = (void *)rproc->table_ptr + rvdev->rsc_offset;
 	rsc->vring[id].da = mem->da;
+
+	pr_debug("rsc->vring[%d].da = 0x%llx %px\n\n", id, rsc->vring[id].da, vq);
 
 	return vq;
 }
@@ -194,7 +205,7 @@ static int rproc_virtio_find_vqs(struct virtio_device *vdev, unsigned int nvqs,
 			vqs[i] = NULL;
 			continue;
 		}
-
+		dev_dbg(&vdev->dev, "finding vq %s", names[i]);
 		vqs[i] = rp_find_vq(vdev, queue_idx++, callbacks[i], names[i],
 				    ctx ? ctx[i] : false);
 		if (IS_ERR(vqs[i])) {
@@ -216,7 +227,7 @@ static u8 rproc_virtio_get_status(struct virtio_device *vdev)
 	struct fw_rsc_vdev *rsc;
 
 	rsc = (void *)rvdev->rproc->table_ptr + rvdev->rsc_offset;
-
+	pr_debug("rproc_virtio_get_status %d\r\n", rsc->status);
 	return rsc->status;
 }
 
