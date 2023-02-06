@@ -145,7 +145,7 @@
 				compatible = "thead,c900-clint";
 				reg = <0xe4000000 0xc000>;
 				interrupts-extended = <&cpu0_intc 3>,
-										<&cpu0_intc 7>;
+									  <&cpu0_intc 7>;
 		};
 
 	};
