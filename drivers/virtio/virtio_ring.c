@@ -587,6 +587,8 @@ static inline int virtqueue_add_split(struct virtqueue *_vq,
 				goto unmap_release;
 
 			prev = i;
+			pr_debug("buffer address %px\r\n", addr);
+
 			/* Note that we trust indirect descriptor
 			 * table since it use stream DMA mapping.
 			 */
@@ -602,6 +604,8 @@ static inline int virtqueue_add_split(struct virtqueue *_vq,
 				goto unmap_release;
 
 			prev = i;
+			pr_debug("buffer address %px\r\n", addr);
+
 			/* Note that we trust indirect descriptor
 			 * table since it use stream DMA mapping.
 			 */
@@ -618,6 +622,7 @@ static inline int virtqueue_add_split(struct virtqueue *_vq,
 		vq->split.desc_extra[prev & (vq->split.vring.num - 1)].flags &=
 			~VRING_DESC_F_NEXT;
 
+
 	if (indirect) {
 		/* Now that the indirect table is filled in, map it. */
 		dma_addr_t addr = vring_map_single(
@@ -625,6 +630,7 @@ static inline int virtqueue_add_split(struct virtqueue *_vq,
 			DMA_TO_DEVICE);
 		if (vring_mapping_error(vq, addr))
 			goto unmap_release;
+pr_debug("buffer address %px\r\n", addr);
 
 		virtqueue_add_desc_split(_vq, vq->split.vring.desc,
 					 head, addr,
@@ -662,7 +668,7 @@ static inline int virtqueue_add_split(struct virtqueue *_vq,
 						vq->split.avail_idx_shadow);
 	vq->num_added++;
 
-	pr_debug("Added buffer head %i to %p\n", head, vq);
+	pr_debug("Added buffer head %i to %px\n", head, vq);
 	END_USE(vq);
 
 	/* This is very unlikely, but theoretically possible.  Kick
@@ -780,6 +786,7 @@ static void detach_buf_split(struct vring_virtqueue *vq, unsigned int head,
 
 static inline bool more_used_split(const struct vring_virtqueue *vq)
 {
+	pr_debug("more used split %px %d %d\r\n", vq, vq->last_used_idx, vq->split.vring.used->idx);
 	return vq->last_used_idx != virtio16_to_cpu(vq->vq.vdev,
 			vq->split.vring.used->idx);
 }
@@ -1605,6 +1612,8 @@ static inline bool more_used_packed(const struct vring_virtqueue *vq)
 	u16 last_used;
 	u16 last_used_idx;
 	bool used_wrap_counter;
+
+	pr_debug("more used packed: last_used_idx %d", vq->last_used_idx);
 
 	last_used_idx = READ_ONCE(vq->last_used_idx);
 	last_used = packed_last_used(last_used_idx);
@@ -2444,14 +2453,18 @@ static inline bool more_used(const struct vring_virtqueue *vq)
  */
 irqreturn_t vring_interrupt(int irq, void *_vq)
 {
+	pr_debug("vring_interrupt... %px\n", _vq);
 	struct vring_virtqueue *vq = to_vvq(_vq);
 
+	pr_debug("vring_interrupt...\n");
 	if (!more_used(vq)) {
-		pr_debug("virtqueue interrupt with no work for %p\n", vq);
+		pr_debug("virtqueue interrupt with no work for %px\n", vq);
 		return IRQ_NONE;
 	}
 
 	if (unlikely(vq->broken)) {
+		pr_debug("virtqueue interrupt with broken virtqueue for %px\n",
+			 vq);
 #ifdef CONFIG_VIRTIO_HARDEN_NOTIFICATION
 		dev_warn_once(&vq->vq.vdev->dev,
 			      "virtio vring IRQ raised before DRIVER_OK");
@@ -2460,7 +2473,7 @@ irqreturn_t vring_interrupt(int irq, void *_vq)
 		return IRQ_HANDLED;
 #endif
 	}
-
+	pr_debug("interupting...\n");
 	/* Just a hint for performance: so it's ok that this can be racy! */
 	if (vq->event)
 		vq->event_triggered = true;
@@ -2492,6 +2505,8 @@ static struct virtqueue *__vring_new_virtqueue(unsigned int index,
 	vq = kmalloc(sizeof(*vq), GFP_KERNEL);
 	if (!vq)
 		return NULL;
+
+pr_debug("__vring_new_virtqueue %px\r\n", vq);
 
 	vq->packed_ring = false;
 	vq->vq.callback = callback;

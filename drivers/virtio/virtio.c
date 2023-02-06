@@ -426,15 +426,19 @@ int register_virtio_device(struct virtio_device *dev)
 	err = ida_alloc(&virtio_index_ida, GFP_KERNEL);
 	if (err < 0)
 		goto out;
-
+	dev_dbg(&dev->dev, "index %d", err);
 	dev->index = err;
 	err = dev_set_name(&dev->dev, "virtio%u", dev->index);
 	if (err)
 		goto out_ida_remove;
 
+	dev_dbg(&dev->dev, "id %u:%u", dev->id.vendor, dev->id.device);
+
 	err = virtio_device_of_init(dev);
 	if (err)
 		goto out_ida_remove;
+
+	dev_dbg(&dev->dev, "device_of_init");
 
 	spin_lock_init(&dev->config_lock);
 	dev->config_enabled = false;
@@ -447,9 +451,12 @@ int register_virtio_device(struct virtio_device *dev)
 	 * driver messed it up.  This also tests that code path a little. */
 	virtio_reset_device(dev);
 
+	dev_dbg(&dev->dev, "reset_device");
+
 	/* Acknowledge that we've seen the device. */
 	virtio_add_status(dev, VIRTIO_CONFIG_S_ACKNOWLEDGE);
 
+	dev_dbg(&dev->dev, "add_status");
 	/*
 	 * device_add() causes the bus infrastructure to look for a matching
 	 * driver.
@@ -458,6 +465,8 @@ int register_virtio_device(struct virtio_device *dev)
 	if (err)
 		goto out_of_node_put;
 
+	dev_dbg(&dev->dev, "device_add");
+	
 	return 0;
 
 out_of_node_put:

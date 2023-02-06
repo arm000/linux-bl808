@@ -264,6 +264,8 @@ rproc_find_carveout_by_name(struct rproc *rproc, const char *name, ...)
 
 	list_for_each_entry(carveout, &rproc->carveouts, node) {
 		/* Compare carveout and requested names */
+		dev_dbg(rproc->dev.parent, "carveout %s vs %s", carveout->name,
+			_name);
 		if (!strcmp(carveout->name, _name)) {
 			mem = carveout;
 			break;
@@ -295,7 +297,7 @@ static int rproc_check_carveout_da(struct rproc *rproc,
 
 	/* Check requested resource length */
 	if (len > mem->len) {
-		dev_err(dev, "Registered carveout doesn't fit len request\n");
+		dev_err(dev, "Registered carveout doesn't fit len request %s %d %d\n", mem->name, len, mem->len);
 		return -EINVAL;
 	}
 
@@ -483,9 +485,10 @@ static int rproc_handle_vdev(struct rproc *rproc, void *ptr,
 	struct platform_device *pdev;
 
 	/* make sure resource isn't truncated */
+	dev_dbg(dev, "vdev rsc: id %d, dfeatures 0x%x, cfg len %d, %d vrings", rsc->id, rsc->dfeatures, rsc->config_len, rsc->num_of_vrings);
 	rsc_size = struct_size(rsc, vring, rsc->num_of_vrings);
 	if (size_add(rsc_size, rsc->config_len) > avail) {
-		dev_err(dev, "vdev rsc is truncated\n");
+		dev_err(dev, "vdev rsc is truncated %ld %d\n", size_add(rsc_size, rsc->config_len), avail);
 		return -EINVAL;
 	}
 
@@ -1024,7 +1027,7 @@ static int rproc_handle_resources(struct rproc *rproc,
 
 	if (!rproc->table_ptr)
 		return 0;
-
+	dev_dbg(dev, "handling resources %d", rproc->table_ptr->num);
 	for (i = 0; i < rproc->table_ptr->num; i++) {
 		int offset = rproc->table_ptr->offset[i];
 		struct fw_rsc_hdr *hdr = (void *)rproc->table_ptr + offset;
@@ -1037,7 +1040,7 @@ static int rproc_handle_resources(struct rproc *rproc,
 			return -EINVAL;
 		}
 
-		dev_dbg(dev, "rsc: type %d\n", hdr->type);
+		dev_dbg(dev, "rsc: type %d %ld %d %d\n", hdr->type, rproc->table_sz, offset, avail);
 
 		if (hdr->type >= RSC_VENDOR_START &&
 		    hdr->type <= RSC_VENDOR_END) {
