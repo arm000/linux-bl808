@@ -92,7 +92,8 @@ static int rpmsg_tty_write(struct tty_struct *tty, const u8 *buf, int len)
 	 * Use rpmsg_trysend instead of rpmsg_send to send the message so the caller is not
 	 * hung until a rpmsg buffer is available. In such case rpmsg_trysend returns -ENOMEM.
 	 */
-	ret = rpmsg_trysend(rpdev->ept, (void *)buf, msg_size);
+	/* for bl808, we only have a few small buffers, and a slow M0 CPU, so lets use rpmsg_send */
+	ret = rpmsg_send(rpdev->ept, (void *)buf, msg_size);
 	if (ret) {
 		dev_dbg_ratelimited(&rpdev->dev, "rpmsg_send failed: %d\n", ret);
 		return ret;

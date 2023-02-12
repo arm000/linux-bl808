@@ -127,8 +127,11 @@ struct virtio_rpmsg_channel {
  * can change this without changing anything in the firmware of the remote
  * processor.
  */
+/* for BL808, lets use a large buffer size so we can do ethernet frames 
+ * eventually
+ */
 #define MAX_RPMSG_NUM_BUFS	(512)
-#define MAX_RPMSG_BUF_SIZE	(512)
+#define MAX_RPMSG_BUF_SIZE	(2032)
 
 /*
  * Local addresses are dynamically allocated on-demand.
@@ -422,7 +425,9 @@ static struct rpmsg_device *__rpmsg_create_channel(struct virtproc_info *vrp,
 	 * rpmsg server channels has predefined local address (for now),
 	 * and their existence needs to be announced remotely
 	 */
-	rpdev->announce = rpdev->src != RPMSG_ADDR_ANY;
+	/* rpmsg-lite never sends a ADDR_ANY address, without this, we have to wait 
+	 * for linux to send the first message... */
+	rpdev->announce = 1;
 
 	strncpy(rpdev->id.name, chinfo->name, RPMSG_NAME_SIZE);
 
