@@ -64,6 +64,6 @@
 	status = "okay";
 };
 
-rproc {
+&rproc {
 	status = "okay";
 };
