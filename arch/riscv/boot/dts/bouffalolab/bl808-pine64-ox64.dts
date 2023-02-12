@@ -58,3 +58,7 @@
 &enet0 {
 	status = "okay";
 };
+
+rproc {
+	status = "okay";
+};
