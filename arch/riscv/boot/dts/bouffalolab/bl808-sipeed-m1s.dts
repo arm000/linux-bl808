@@ -17,7 +17,7 @@
 
 	chosen {
 		stdout-path = "serial0:2000000n8";
-		bootargs = "console=ttyS0,2000000 loglevel=8 earlycon=sbi root=/dev/mtdblock0 ro rootfstype=squashfs";
+		bootargs = "console=ttyS0,2000000 loglevel=8 earlycon=sbi root=/dev/mmcblk0p2 rootwait rootfstype=ext4";
 		linux,initrd-start = <0x0 0x52000000>;
 		linux,initrd-end = <0x0 0x52941784>;
 	};
@@ -61,5 +61,9 @@
 };
 
 &enet0 {
+	status = "okay";
+};
+
+&rproc {
 	status = "okay";
 };

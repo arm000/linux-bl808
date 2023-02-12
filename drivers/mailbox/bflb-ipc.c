@@ -11,6 +11,7 @@
 #include <linux/module.h>
 #include <linux/platform_device.h>
 
+#include <linux/bflb-mailbox.h>
 #include <dt-bindings/mailbox/bflb-ipc.h>
 
 /* IPC Register offsets */
@@ -25,12 +26,14 @@
 
 /**
  * struct bflb_ipc_chan_info - Per-mailbox-channel info
- * @client_id:	The client-id to which the interrupt has to be triggered
- * @signal_id:	The signal-id to which the interrupt has to be triggered
+ * @cpu_id:	The cpu_id is a identifier of what CPU is being called
+ * @service_id:	The service_id is a identifier of what service is being called on the remote CPU
+ * @op_id:	The operation we want to execute on the remote CPU
  */
 struct bflb_ipc_chan_info {
-	u16 client_id;
-	u16 signal_id;
+	u8  cpu_id;
+	u16 service_id;
+	u16 op_id;
 };
 
 /**
@@ -39,7 +42,8 @@ struct bflb_ipc_chan_info {
  * @base:		Base address of each IPC frame (LP, M0)
  * @irq_domain:		The irq_domain associated with this instance
  * @chans:		The mailbox channels array
- * @mchan:		The per-mailbox channel info array
+ * @outchat:		The outbound (singal the other CPU) mailbox channel info
+ * @inchan:		The inbound (receive the signal from the other CPU) mailbox channel info
  * @mbox:		The mailbox controller
  * @num_chans:		Number of @chans elements
  * @irq:		Summary irq
@@ -49,30 +53,32 @@ struct bflb_ipc {
 	void __iomem *base[4];
 	struct irq_domain *irq_domain;
 	struct mbox_chan *chans;
-	struct bflb_ipc_chan_info *mchan;
-	struct mbox_controller mbox;
+	struct bflb_ipc_chan_info *bflbchan;
+	struct mbox_controller mboxctlr;
 	int num_chans;
 	int irq;
 };
 
-static inline struct bflb_ipc *to_bflb_ipc(struct mbox_controller *mbox)
+static inline struct bflb_ipc *to_bflb_ipc(struct mbox_controller *mboxctlr)
 {
-	return container_of(mbox, struct bflb_ipc, mbox);
+	return container_of(mboxctlr, struct bflb_ipc, mboxctlr);
 }
 
 static inline u32 bflb_ipc_get_hwirq(u16 source, u16 device)
 {
-	pr_debug("%s: source: %u, device: %u\n", __func__, source, device);
+//	dev_dbg("%s: source: %u, device: %u\n", __func__, source, device);
 
 	return device;
 }
+
 
 #if 0
 static void bflb_ipc_dump_regs(struct bflb_ipc *ipc)
 {
 	int i;
-	for (i=0; i<4; i++) {
-		dev_dbg(ipc->dev, "base %px\n", ipc->base[i]);
+
+	for (i = 0; i < 4; i++) {
+		dev_dbg(ipc->dev, "base %px %d\n", ipc->base[i], i);
 		dev_dbg(ipc->dev, "ISWR:  0x%08x\n", readl(ipc->base[i] + IPC_REG_ISWR));
 		dev_dbg(ipc->dev, "IRSRR: 0x%08x\n", readl(ipc->base[i] + IPC_REG_IRSRR));
 		dev_dbg(ipc->dev, "ICR:   0x%08x\n", readl(ipc->base[i] + IPC_REG_ICR));
@@ -85,6 +91,96 @@ static void bflb_ipc_dump_regs(struct bflb_ipc *ipc)
 }
 #endif
 
+struct mbox_chan *bflb_mbox_find_chan(struct bflb_ipc *ipc, struct bflb_ipc_chan_info *chaninfo)
+{
+	struct bflb_ipc_chan_info *mchan;
+	struct mbox_controller *mboxctlr = &ipc->mboxctlr;
+	struct mbox_chan *chan;
+	struct device *dev;
+	int chan_id;
+
+	dev = ipc->dev;
+
+	for (chan_id = 0; chan_id < mboxctlr->num_chans; chan_id++) {
+		chan = &ipc->chans[chan_id];
+		mchan = chan->con_priv;
+
+		if (!mchan)
+			break;
+		else if (mchan->cpu_id == chaninfo->cpu_id &&
+				mchan->service_id == chaninfo->service_id &&
+					mchan->op_id == chaninfo->op_id)
+			return chan;
+	}
+	dev_err(dev, "%s: No channel found for cpu_id %d service_id %d op_id %d",
+		__func__, chaninfo->cpu_id, chaninfo->service_id, chaninfo->op_id);
+
+	return ERR_PTR(-EINVAL);
+
+}
+
+/* called when we get a RX interrupt from another processor
+ * this indicates there is a message waitinf for us in
+ * IPC_REG_ILSHR and IPC_REG_ILSLR registers to process
+ */
+static void bflb_mbox_rx_irq_fn(int from_cpu, struct bflb_ipc *ipc)
+{
+	struct mbox_chan *chan;
+	struct bflb_ipc_chan_info bflbchan;
+	struct bflb_mbox_msg msg;
+	u32 sig_op;
+
+	/* update this when we support LP */
+	sig_op = readl(ipc->base[1] + IPC_REG_ILSHR);
+	msg.param = readl(ipc->base[1] + IPC_REG_ILSLR);
+
+	WARN_ON(sig_op == 0);
+
+	bflbchan.cpu_id = from_cpu;
+	bflbchan.service_id = (sig_op >> 16) & 0xFFFF;
+	bflbchan.op_id = sig_op & 0xFFFF;
+
+	chan = bflb_mbox_find_chan(ipc, &bflbchan);
+	if (IS_ERR(chan)) {
+		dev_err(ipc->dev, "no channel for signal cpu_id: %d service: %d op: %d\r\n", bflbchan.cpu_id, bflbchan.service_id, bflbchan.op_id);
+		return;
+	}
+
+	dev_dbg(ipc->dev, "Got MBOX Signal cpu: %d service %d op %d param %x\r\n", bflbchan.cpu_id, bflbchan.service_id, bflbchan.op_id, msg.param);
+
+	mbox_chan_received_data(chan, &msg);
+}
+
+/* called when we get a interupt back on our TX IRQ.
+ * This is a EOI interupt
+ */
+static void bflb_mbox_tx_irq_fn(u8 from_cpu, struct bflb_ipc *ipc)
+{
+	struct mbox_chan *chan;
+	struct bflb_ipc_chan_info bflbchan;
+
+	u32 sig_op = readl(ipc->base[2] + IPC_REG_ILSHR);
+	u32 param = readl(ipc->base[2] + IPC_REG_ILSLR);
+
+	bflbchan.cpu_id = from_cpu;
+	bflbchan.service_id = (sig_op >> 16) & 0xFFFF;
+	bflbchan.op_id = sig_op & 0xFFFF;
+
+	chan = bflb_mbox_find_chan(ipc, &bflbchan);
+	if (IS_ERR(chan)) {
+		dev_err(ipc->dev, "no channel for EOI signal cpu_id: %d service: %d op: %d Param: %d $$$$$$$$$", bflbchan.cpu_id, bflbchan.service_id, bflbchan.op_id, param);
+		return;
+	}
+
+	dev_dbg(ipc->dev, "Got MBOX EOI Signal cpu: %d service %d op %d Param: %d $$$$$$$$$$$$$$$$$$$$", bflbchan.cpu_id, bflbchan.service_id, bflbchan.op_id, param);
+
+	/* clear the IPC_REG_ILSLR and IPC_REG_ILSHR */
+	writel(0, ipc->base[2] + IPC_REG_ILSLR);
+	writel(0, ipc->base[2] + IPC_REG_ILSHR);
+
+	mbox_chan_txdone(chan, 0);
+}
+
 static irqreturn_t bflb_ipc_irq_fn(int irq, void *data)
 {
 	struct bflb_ipc *ipc = data;
@@ -92,12 +188,21 @@ static irqreturn_t bflb_ipc_irq_fn(int irq, void *data)
 	int pos;
 
 	stat = readl(ipc->base[1] + IPC_REG_ISR);
-	for_each_set_bit(pos, &stat, 32)
-		generic_handle_domain_irq(ipc->irq_domain, pos);
+
+	for_each_set_bit(pos, &stat, 32) {
+		if (pos == BFLB_IPC_DEVICE_MBOX_RX)
+			bflb_mbox_rx_irq_fn(BFLB_IPC_SOURCE_M0, ipc);
+		else if (pos == BFLB_IPC_DEVICE_MBOX_TX)
+			/* we use target here as its a EOI from a send */
+			bflb_mbox_tx_irq_fn(BFLB_IPC_TARGET_M0, ipc);
+		else
+			generic_handle_domain_irq(ipc->irq_domain, pos);
+	}
 	writel(stat, ipc->base[1] + IPC_REG_ICR);
 
-	/* EOI the irqs */
-	writel(stat, ipc->base[2] + IPC_REG_ISWR);
+	/* Signal EOI to the other processes except when we recieve a EOI ourselves */
+	if (stat != (1 << BFLB_IPC_DEVICE_MBOX_TX))
+		writel(stat, ipc->base[2] + IPC_REG_ISWR);
 
 	return IRQ_HANDLED;
 }
@@ -157,71 +262,119 @@ static const struct irq_domain_ops bflb_ipc_irq_ops = {
 	.xlate = bflb_ipc_domain_xlate,
 };
 
+#if 0
+/* Shouldn't actually be fail as we clear the High/Low registers in a EOI
+ * but this protects if we screw up our mailbox handling
+ */
+static bool bflb_ipc_mbox_can_send(struct mbox_chan *chan)
+{
+	struct bflb_ipc *ipc = to_bflb_ipc(chan->mbox);
+
+	/* check the low register first as we clear that last in our EOI, so this
+	 * should protected to a limited extent
+	 */
+	u32 mbox_low = readl(ipc->base[2] + IPC_REG_ILSLR);
+	u32 mbox_high = readl(ipc->base[2] + IPC_REG_ILSHR);
+
+
+	if (mbox_low | mbox_high)
+		dev_warn_ratelimited(ipc->dev, "%s: low: 0x%08x high: 0x%08x\r\n", __func__, mbox_low, mbox_high);
+
+	writel(0, ipc->base[2] + IPC_REG_ILSLR);
+	writel(0, ipc->base[2] + IPC_REG_ILSHR);
+
+	return !(mbox_low | mbox_high);
+}
+#endif
+
 static int bflb_ipc_mbox_send_data(struct mbox_chan *chan, void *data)
 {
 	struct bflb_ipc *ipc = to_bflb_ipc(chan->mbox);
 	struct bflb_ipc_chan_info *mchan = chan->con_priv;
-	u32 hwirq;
+	struct bflb_mbox_msg *msg = data;
+	u32 tmpVal = (mchan->service_id << 16) | (mchan->op_id & 0xFFFF);
 
-	hwirq = bflb_ipc_get_hwirq(mchan->client_id, mchan->signal_id);
+#if 0
+	if (!bflb_ipc_mbox_can_send(chan))
+		return -EBUSY;
+#endif
 
-	dev_dbg(ipc->dev, "%s: hwirq: %u\n", __func__, hwirq);
+	dev_dbg(ipc->dev, "%s %d: cpu: %d singal: %d op: %d (0x%x) param: %d", __func__, msg->id, mchan->cpu_id, mchan->service_id, mchan->op_id, tmpVal, msg->param);
 
-//	writel(hwirq, ipc->base + IPC_REG_SEND_ID);
+	// /* write our signal number to high register */
+	writel(tmpVal, ipc->base[2] + IPC_REG_ILSHR);
+	// /* write our data to low register */
+	writel(msg->param, ipc->base[2] + IPC_REG_ILSLR);
 
+	/* and now kick the remote processor */
+	writel((1 << BFLB_IPC_DEVICE_MBOX_TX), ipc->base[2] + IPC_REG_ISWR);
+	dev_dbg(ipc->dev, "%s %d: done param: %d", __func__, msg->id, msg->param);
 	return 0;
 }
 
 static void bflb_ipc_mbox_shutdown(struct mbox_chan *chan)
 {
-	pr_debug("%s\n", __func__);
+	struct bflb_ipc *ipc = to_bflb_ipc(chan->mbox);
+
+	dev_dbg(ipc->dev, "%s\n", __func__);
 	chan->con_priv = NULL;
 }
 
-static struct mbox_chan *bflb_ipc_mbox_xlate(struct mbox_controller *mbox,
+static struct mbox_chan *bflb_ipc_mbox_xlate(struct mbox_controller *mboxctlr,
 					const struct of_phandle_args *ph)
 {
-	struct bflb_ipc *ipc = to_bflb_ipc(mbox);
+	struct bflb_ipc *ipc = to_bflb_ipc(mboxctlr);
 	struct bflb_ipc_chan_info *mchan;
 	struct mbox_chan *chan;
-	struct device *dev;
+	struct device *dev = ipc->dev;
 	int chan_id;
 
-	dev = ipc->dev;
 
 	dev_dbg(dev, "%s\n", __func__);
 
-	if (ph->args_count != 2)
+	if (ph->args_count != 3) {
+		dev_err(dev, "invalid number of arguments");
 		return ERR_PTR(-EINVAL);
+	}
 
-	for (chan_id = 0; chan_id < mbox->num_chans; chan_id++) {
+	for (chan_id = 0; chan_id < mboxctlr->num_chans; chan_id++) {
 		chan = &ipc->chans[chan_id];
 		mchan = chan->con_priv;
 
 		if (!mchan)
 			break;
-		else if (mchan->client_id == ph->args[0] &&
-				mchan->signal_id == ph->args[1])
-			return ERR_PTR(-EBUSY);
+		else if (mchan->cpu_id == ph->args[0] &&
+				mchan->service_id == ph->args[1] &&
+					mchan->op_id == ph->args[2]) {
+						dev_err(dev, "channel already in use %d %d %d", ph->args[0], ph->args[1], ph->args[2]);
+						return ERR_PTR(-EBUSY);
+					}
 	}
 
-	if (chan_id >= mbox->num_chans)
+	if (chan_id >= mboxctlr->num_chans) {
+		dev_err(dev, "no free channels");
 		return ERR_PTR(-EBUSY);
+	}
 
 	mchan = devm_kzalloc(dev, sizeof(*mchan), GFP_KERNEL);
 	if (!mchan)
 		return ERR_PTR(-ENOMEM);
 
-	mchan->client_id = ph->args[0];
-	mchan->signal_id = ph->args[1];
+	mchan->cpu_id = ph->args[0];
+	mchan->service_id = ph->args[1];
+	mchan->op_id = ph->args[2];
 	chan->con_priv = mchan;
+
+	dev_dbg(dev, "%s mbox %s: %d cpu: %d service: %d op: %d", __func__, ph->np->full_name, chan_id, mchan->cpu_id, mchan->service_id, mchan->op_id);
 
 	return chan;
 }
 
+
 static const struct mbox_chan_ops ipc_mbox_chan_ops = {
 	.send_data = bflb_ipc_mbox_send_data,
 	.shutdown = bflb_ipc_mbox_shutdown,
+//	.last_tx_done = bflb_ipc_mbox_can_send,
 };
 
 static int bflb_ipc_setup_mbox(struct bflb_ipc *ipc,
@@ -229,7 +382,7 @@ static int bflb_ipc_setup_mbox(struct bflb_ipc *ipc,
 {
 	struct of_phandle_args curr_ph;
 	struct device_node *client_dn;
-	struct mbox_controller *mbox;
+	struct mbox_controller *mboxctlr;
 	struct device *dev = ipc->dev;
 	int i, j, ret;
 
@@ -249,11 +402,11 @@ static int bflb_ipc_setup_mbox(struct bflb_ipc *ipc,
 			of_node_put(curr_ph.np);
 			if (!ret && curr_ph.np == controller_dn) {
 				ipc->num_chans++;
-				break;
+				//break;
 			}
 		}
 	}
-
+	dev_dbg(dev, "%s: num_chans: %d", __func__, ipc->num_chans);
 	/* If no clients are found, skip registering as a mbox controller */
 	if (!ipc->num_chans)
 		return 0;
@@ -263,16 +416,26 @@ static int bflb_ipc_setup_mbox(struct bflb_ipc *ipc,
 	if (!ipc->chans)
 		return -ENOMEM;
 
-	mbox = &ipc->mbox;
-	mbox->dev = dev;
-	mbox->num_chans = ipc->num_chans;
-	mbox->chans = ipc->chans;
-	mbox->ops = &ipc_mbox_chan_ops;
-	mbox->of_xlate = bflb_ipc_mbox_xlate;
-	mbox->txdone_irq = false;
-	mbox->txdone_poll = false;
+	mboxctlr = &ipc->mboxctlr;
+	mboxctlr->dev = dev;
+	mboxctlr->num_chans = ipc->num_chans;
+	mboxctlr->chans = ipc->chans;
+	mboxctlr->ops = &ipc_mbox_chan_ops;
+	mboxctlr->of_xlate = bflb_ipc_mbox_xlate;
+	mboxctlr->txdone_irq = true;
+//	mboxctlr->txdone_poll = false;
 
-	return devm_mbox_controller_register(dev, mbox);
+
+
+	/* clear the IPC_REG_ILSLR and IPC_REG_ILSHR */
+	writel(0, ipc->base[2] + IPC_REG_ILSLR);
+	writel(0, ipc->base[2] + IPC_REG_ILSHR);
+
+	/* unmask our interupt */
+	writel(BIT(BFLB_IPC_DEVICE_MBOX_TX), ipc->base[1] + IPC_REG_IUSR);
+	writel(BIT(BFLB_IPC_DEVICE_MBOX_RX), ipc->base[1] + IPC_REG_IUSR);
+
+	return devm_mbox_controller_register(dev, mboxctlr);
 }
 
 static int bflb_ipc_pm_resume(struct device *dev)
@@ -294,7 +457,7 @@ static int bflb_ipc_probe(struct platform_device *pdev)
 
 	ipc->dev = &pdev->dev;
 
-	for (i=0; i<4; i++) {
+	for (i = 0; i < 4; i++) {
 		ipc->base[i] = devm_platform_ioremap_resource(pdev, i);
 		if (IS_ERR(ipc->base[i]))
 			return PTR_ERR(ipc->base[i]);
@@ -332,7 +495,7 @@ static int bflb_ipc_probe(struct platform_device *pdev)
 
 err_req_irq:
 	if (ipc->num_chans)
-		mbox_controller_unregister(&ipc->mbox);
+		mbox_controller_unregister(&ipc->mboxctlr);
 err_mbox:
 	irq_domain_remove(ipc->irq_domain);
 

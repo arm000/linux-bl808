@@ -416,6 +416,12 @@ config VIRTIO_NET
 	  This is the virtual network driver for virtio.  It can be used with
 	  QEMU based VMMs (like KVM or Xen).  Say Y or M.
 
+config RPMSG_NET
+	tristate "RPMSG network driver"
+	depends on RPMSG
+	help
+	  This is a virtual network driver for rpmsg bus.
+
 config NLMON
 	tristate "Virtual netlink monitoring device"
 	help
