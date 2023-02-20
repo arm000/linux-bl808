@@ -69,6 +69,7 @@ enum fotg210_hrtimer_event {
 	FOTG210_HRTIMER_DISABLE_PERIODIC, /* Wait to disable periodic sched */
 	FOTG210_HRTIMER_DISABLE_ASYNC,	/* Wait to disable async sched */
 	FOTG210_HRTIMER_IO_WATCHDOG,	/* Check for missing IRQs */
+	FOTG210_HRTIMER_DELAY_HCD_RESET,/* delay hc_reset, let AP knows usb disconnect */
 	FOTG210_HRTIMER_NUM_EVENTS	/* Must come last */
 };
 #define FOTG210_HRTIMER_NO_EVENT	99
@@ -131,9 +132,11 @@ struct fotg210_hcd {			/* one per controller */
 	unsigned		uframe_periodic_max;
 
 
-	/* list of itds completed while now_frame was still active */
+	/* list of itds & sitds completed while now_frame was still active */
 	struct list_head	cached_itd_list;
 	struct fotg210_itd	*last_itd_to_free;
+	struct list_head	cached_sitd_list;
+	struct fotg210_sitd	*last_sitd_to_free;
 
 	/* per root hub port */
 	unsigned long		reset_done[FOTG210_MAX_ROOT_PORTS];
@@ -162,6 +165,7 @@ struct fotg210_hcd {			/* one per controller */
 	struct dma_pool		*qh_pool;	/* qh per active urb */
 	struct dma_pool		*qtd_pool;	/* one or more per qh */
 	struct dma_pool		*itd_pool;	/* itd per iso urb */
+	struct dma_pool		*sitd_pool;	/* sitd per split iso urb */
 
 	unsigned		random_frame;
 	unsigned long		next_statechange;
@@ -177,13 +181,13 @@ struct fotg210_hcd {			/* one per controller */
 	/* irq statistics */
 #ifdef FOTG210_STATS
 	struct fotg210_stats	stats;
-#	define INCR(x) ((x)++)
+#	define COUNT(x) ((x)++)
 #else
-#	define INCR(x) do {} while (0)
+#	define COUNT(x)
 #endif
 
-	/* silicon clock */
-	struct clk		*pclk;
+	/* debug files */
+	struct dentry		*debug_dir;
 };
 
 /* convert between an HCD pointer and the corresponding FOTG210_HCD */
@@ -280,26 +284,38 @@ struct fotg210_regs {
 #define PORT_CSC	(1<<1)		/* connect status change */
 #define PORT_CONNECT	(1<<0)		/* device connected */
 #define PORT_RWC_BITS   (PORT_CSC | PORT_PEC)
-	u32     reserved2[19];
+	u32	reserved2[19];
 
 	/* OTGCSR: offet 0x70 */
-	u32     otgcsr;
+	u32	otgcsr;
 #define OTGCSR_HOST_SPD_TYP     (3 << 22)
+#define OTGCSR_ID		(1 << 21)
+#define OTGCSR_CROLE		(1 << 20)
 #define OTGCSR_A_BUS_DROP	(1 << 5)
 #define OTGCSR_A_BUS_REQ	(1 << 4)
 
 	/* OTGISR: offset 0x74 */
-	u32     otgisr;
+	u32	otgisr;
 #define OTGISR_OVC	(1 << 10)
 
-	u32     reserved3[15];
+	u32	reserved3[15];
 
 	/* GMIR: offset 0xB4 */
-	u32     gmir;
+	u32	gmir;
 #define GMIR_INT_POLARITY	(1 << 3) /*Active High*/
 #define GMIR_MHC_INT		(1 << 2)
 #define GMIR_MOTG_INT		(1 << 1)
 #define GMIR_MDEV_INT	(1 << 0)
+
+	u32	reserved4[62];
+	/* Device DMA Target FIFO Number Register (0x1C0) */
+	u32	dev_dma_tfn;
+	/* Device DMA Controller Parameter setting 0 Register (0x1C4) */
+	u32	dev_dma_cps0;
+	/* Device DMA Controller Parameter setting 1 Register (0x1C8) */
+	u32	dev_dma_cps1;
+	/* Device DMA Controller Parameter setting 2 Register (0x1CC) */
+	u32	dev_dma_cps2;
 };
 
 /*-------------------------------------------------------------------------*/
@@ -389,6 +405,7 @@ struct fotg210_qtd {
 union fotg210_shadow {
 	struct fotg210_qh	*qh;		/* Q_TYPE_QH */
 	struct fotg210_itd	*itd;		/* Q_TYPE_ITD */
+	struct fotg210_sitd	*sitd;		/* Q_TYPE_SITD */
 	struct fotg210_fstn	*fstn;		/* Q_TYPE_FSTN */
 	__hc32			*hw_next;	/* (all types) */
 	void			*ptr;
@@ -487,7 +504,7 @@ struct fotg210_iso_packet {
 struct fotg210_iso_sched {
 	struct list_head	td_list;
 	unsigned		span;
-	struct fotg210_iso_packet	packet[];
+	struct fotg210_iso_packet	packet[0];
 };
 
 /*
@@ -565,6 +582,49 @@ struct fotg210_itd {
 	unsigned		frame;		/* where scheduled */
 	unsigned		pg;
 	unsigned		index[8];	/* in urb->iso_frame_desc */
+} __aligned(64);
+
+/*-------------------------------------------------------------------------*/
+
+/*
+ * EHCI Specification 0.95 Section 3.4
+ * siTD, aka split-transaction isochronous Transfer Descriptor
+ *       ... describe full speed iso xfers through TT in hubs
+ * see Figure 3-5 "Split-transaction Isochronous Transaction Descriptor (siTD)
+ */
+struct fotg210_sitd {
+	/* first part defined by EHCI spec */
+	__hc32			hw_next;
+/* uses bit field macros above - see EHCI 0.95 Table 3-8 */
+	__hc32			hw_fullspeed_ep;	/* EHCI table 3-9 */
+	__hc32			hw_uframe;		/* EHCI table 3-10 */
+	__hc32			hw_results;		/* EHCI table 3-11 */
+#define	SITD_IOC	(1 << 31)	/* interrupt on completion */
+#define	SITD_PAGE	(1 << 30)	/* buffer 0/1 */
+#define	SITD_LENGTH(x)	(((x) >> 16) & 0x3ff)
+#define	SITD_STS_ACTIVE	(1 << 7)	/* HC may execute this */
+#define	SITD_STS_ERR	(1 << 6)	/* error from TT */
+#define	SITD_STS_DBE	(1 << 5)	/* data buffer error (in HC) */
+#define	SITD_STS_BABBLE	(1 << 4)	/* device was babbling */
+#define	SITD_STS_XACT	(1 << 3)	/* illegal IN response */
+#define	SITD_STS_MMF	(1 << 2)	/* incomplete split transaction */
+#define	SITD_STS_STS	(1 << 1)	/* split transaction state */
+
+#define SITD_ACTIVE(fotg210)	cpu_to_hc32(fotg210, SITD_STS_ACTIVE)
+
+	__hc32			hw_buf[2];		/* EHCI table 3-12 */
+	__hc32			hw_backpointer;		/* EHCI table 3-13 */
+	__hc32			hw_buf_hi[2];		/* Appendix B */
+
+	/* the rest is HCD-private */
+	dma_addr_t		sitd_dma;
+	union fotg210_shadow	sitd_next;	/* ptr to periodic q entry */
+
+	struct urb		*urb;
+	struct fotg210_iso_stream	*stream;	/* endpoint's queue */
+	struct list_head	sitd_list;	/* list of stream's sitds */
+	unsigned		frame;
+	unsigned		index;
 } __aligned(32);
 
 /*-------------------------------------------------------------------------*/
@@ -682,6 +742,19 @@ static inline unsigned fotg210_read_frame_index(struct fotg210_hcd *fotg210)
 {
 	return fotg210_readl(fotg210, &fotg210->regs->frame_index);
 }
+
+#if 1
+#define fotg210_itdlen(urb, desc, t) ({			\
+	FOTG210_ITD_LENGTH(t);					\
+})
+
+#else  //For very old controller version, e.g. A369 on-board
+#define fotg210_itdlen(urb, desc, t) ({			\
+	usb_pipein((urb)->pipe) ?				\
+	(desc)->length - FOTG210_ITD_LENGTH(t) :			\
+	FOTG210_ITD_LENGTH(t);					\
+})
+#endif
 
 /*-------------------------------------------------------------------------*/
 

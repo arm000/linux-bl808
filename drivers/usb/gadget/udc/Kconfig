@@ -108,6 +108,48 @@ config USB_FUSB300
 	help
 	   Faraday usb device controller FUSB300 driver
 
+config USB_FOTG210_UDC
+	depends on HAS_DMA
+	tristate "Faraday FOTG210 USB Peripheral Controller"
+	help
+	   Faraday USB2.0 OTG controller which can be configured as
+	   high speed or full speed USB device. This driver supppors
+	   Bulk Transfer so far.
+
+	   Say "y" to link the driver statically, or "m" to build a
+	   dynamically linked module called "fotg210_udc".
+
+config USB_FOTG210_UDC_V1_11_0
+	bool "Support FOTG210 v1.11.0 and newer"
+	default y if !MACH_A369
+	depends on USB_FOTG210_UDC
+	
+config USB_FOTG210_UDC_V1_26_0
+	bool "Support FOTG210 v1.26.0 and newer"
+	select USB_FOTG210_UDC_V1_11_0
+	depends on USB_FOTG210_UDC
+	
+config USB_FOTG210_UDC_DOUBLE_FIFO
+	bool "Enable double FIFO support"
+	depends on USB_FOTG210_UDC
+	help
+	   Faraday usb device controller work on Double FIFO.
+
+config USB_FOTG210_UDC_VDMA
+	bool "Enable VDMA support"
+	depends on USB_FOTG210_UDC
+	help
+	   Faraday usb device controller work on VDMA.
+	   This featrue supports after v1.20.0.
+
+config USB_FOTG210_UDC_HALF_SPEED
+	bool "Enable half speed support(For FPGA)"
+	depends on USB_FOTG210_UDC
+	help
+	   Faraday usb device controller work on half speed.
+	   When the system clock rate falls range of between 
+	   15 MHz and 30 MHz, this needs to be enabled.
+
 config USB_GR_UDC
 	tristate "Aeroflex Gaisler GRUSBDC USB Peripheral Controller Driver"
 	depends on HAS_DMA
